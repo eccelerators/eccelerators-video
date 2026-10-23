@@ -1,0 +1,157 @@
+namespace Eccelerators.Video
+
+/**
+ * Captures high-byte-first RGB565 on rising edges of the inherited PCLK context.
+ * VSYNC is active high (blanking); HREF is high for active bytes. Board adapter
+ * must supply the selected sensor mode's polarity/timing and reset synchronization.
+ * No CDC is performed here. Connect the output to a qualified asynchronous FIFO.
+ * The camera cannot stall: overflow/malformed geometry discards the rest of that
+ * frame. The final pixel/END is withheld until VSYNC validates complete geometry,
+ * so a partial frame cannot become a complete PC image. Resumes at the next frame.
+ */
+component DvpRgb565Capture<WIDTH: int = 320, HEIGHT: int = 240> : IPixelStream
+{
+	static assert WIDTH > 0 && WIDTH <= 4096 && HEIGHT > 0 && HEIGHT <= 4096, "Invalid DVP dimensions"
+
+	// Physical inputs are sampled directly in PCLK, not synchronized bit-by-bit.
+	public cameraData: in byte
+	public href: in bool
+	public vsync: in bool
+
+	// Coherent counters in PCLK; snapshot/CDC is required before system-domain reads.
+	public capturedFrames: out uint
+	public droppedFrames: out uint
+	public malformedFrames: out uint
+	public overflowFrames: out uint
+
+	// Frame/line ownership; initialization waits for an observed VSYNC pulse.
+	previousSync: bool
+	previousHref: bool
+	active: bool
+	x: int
+	y: int
+	halfPixel: bool
+	highByte: byte
+	sequence: uint
+	identity: uint
+	lastPixel: logic[16]
+	lastPending: bool
+
+	// Owned one-token output register and frame-level diagnostics.
+	heldData: logic[16]
+	heldValid: bool
+	heldStart: bool
+	heldLineEnd: bool
+	heldEnd: bool
+	heldId: uint
+	captured: uint
+	dropped: uint
+	malformed: uint
+	overflowed: uint
+
+	/**
+	 * Exposes each token and diagnostic without independent accessor registers.
+	 */
+	process Output[]()
+	{
+		this.data = this.heldData
+		this.valid = this.heldValid
+		this.frameStart = this.heldStart
+		this.lineEnd = this.heldLineEnd
+		this.frameEnd = this.heldEnd
+		this.frameId = this.heldId
+		this.capturedFrames = this.captured
+		this.droppedFrames = this.dropped
+		this.malformedFrames = this.malformed
+		this.overflowFrames = this.overflowed
+	}
+
+	/**
+	 * Samples one camera byte per edge. Only the final pixel waits for frame validation.
+	 */
+	process Capture()
+	{
+		state Tick {
+			if (this.ready) {
+				this.heldValid = false
+			}
+
+			if (this.previousSync && !this.vsync) {
+				this.active = true
+				this.x = 0
+				this.y = 0
+				this.halfPixel = false
+				this.lastPending = false
+				this.identity = this.sequence
+				this.sequence++
+			}
+
+			if (this.active && this.previousHref && !this.href) {
+				if (this.halfPixel || this.x != WIDTH || this.y >= HEIGHT) {
+					this.active = false
+					this.dropped++
+					this.malformed++
+				} else {
+					this.y++
+					this.x = 0
+				}
+			}
+
+			if (this.active && this.vsync && !this.previousSync) {
+				if (this.y != HEIGHT || this.x != 0 || this.halfPixel || !this.lastPending) {
+					this.dropped++
+					this.malformed++
+				} elif (this.heldValid && !this.ready) {
+					this.dropped++
+					this.overflowed++
+				} else {
+					this.heldData = this.lastPixel
+					this.heldValid = true
+					this.heldStart = WIDTH == 1 && HEIGHT == 1
+					this.heldLineEnd = true
+					this.heldEnd = true
+					this.heldId = this.identity
+					this.captured++
+				}
+
+				this.active = false
+			}
+
+			if (this.active && !this.vsync && this.href) {
+				if (this.x >= WIDTH || this.y >= HEIGHT) {
+					this.active = false
+					this.dropped++
+					this.malformed++
+				} elif (!this.halfPixel) {
+					this.highByte = this.cameraData
+					this.halfPixel = true
+				} else {
+					var pixel = (((this.highByte as uint) << 8) | (this.cameraData as uint)) as logic[16]
+					this.halfPixel = false
+
+					if (this.x == WIDTH - 1 && this.y == HEIGHT - 1) {
+						this.lastPixel = pixel
+						this.lastPending = true
+					} elif (this.heldValid && !this.ready) {
+						this.active = false
+						this.dropped++
+						this.overflowed++
+					} else {
+						this.heldData = pixel
+						this.heldValid = true
+						this.heldStart = this.x == 0 && this.y == 0
+						this.heldLineEnd = this.x == WIDTH - 1
+						this.heldEnd = false
+						this.heldId = this.identity
+					}
+
+					this.x++
+				}
+			}
+
+			this.previousSync = this.vsync
+			this.previousHref = this.href
+			goto Tick
+		}
+	}
+}

@@ -1,0 +1,44 @@
+namespace Eccelerators.Video
+
+/**
+ * Synthesizable throughput probe with external backpressure and pixel outputs.
+ * Owns a 320x240 pattern source; inherited 50 MHz clock/reset. No framebuffer.
+ */
+@Context(ClockFrequency = 50MHz)
+component VideoProbe
+{
+	// Owned raster generator and observable stream pins.
+	source: PatternSource<320, 240>
+	public data: out logic[16]
+	public valid: out bool
+	public frameStart: out bool
+	public lineEnd: out bool
+	public frameEnd: out bool
+	public frameId: out uint
+
+	// Borrowed consumer acceptance.
+	ready: bool
+
+	/**
+	 * Starts at frame zero; pattern controls must remain stable within a frame.
+	 */
+	new(enabled: bool, pattern: int, ready: bool)
+	{
+		this.source = new PatternSource<320, 240>(enabled, pattern)
+		this.ready = ready
+	}
+
+	/**
+	 * Exposes the raster stream directly, without scheduling pixel transfers.
+	 */
+	process Wire[]()
+	{
+		this.source.ready = this.ready
+		this.data = this.source.data
+		this.valid = this.source.valid
+		this.frameStart = this.source.frameStart
+		this.lineEnd = this.source.lineEnd
+		this.frameEnd = this.source.frameEnd
+		this.frameId = this.source.frameId
+	}
+}

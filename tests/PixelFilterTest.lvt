@@ -1,0 +1,104 @@
+namespace Eccelerators.Video.Tests
+
+using Eccelerators.Video
+
+/**
+ * Exact RGB565-to-gray values, stalled tokens and mid-frame setting changes.
+ */
+@Test
+component PixelFilterTest
+{
+	// Expected rounded luminance of white, yellow, cyan, green, magenta, red, blue, black.
+	const GRAY: uint[8] = [255, 226, 178, 149, 106, 77, 29, 0]
+
+	// Owned source/filter with explicit nonliteral control bindings.
+	source: PatternSource<8, 1>
+	filter: PixelFilter
+	enabled: bool
+
+	// Reset defaults keep frame settings available without a constructor initialization edge.
+	pattern: int = 2
+	mode: int = 1
+	threshold: byte = 128
+	brightness: int
+
+	// Sink-owned counters observed by the scheduled test.
+	public accepted: out uint
+	public errors: out uint
+	public ticks: out uint
+
+	/**
+	 * Starts in grayscale and asks for invert after three pixels of frame zero.
+	 */
+	new()
+	{
+		this.source = new PatternSource<8, 1>(this.enabled, this.pattern)
+		this.filter = new PixelFilter()
+	}
+
+	/**
+	 * Periodic backpressure tests elastic output and propagation to the producer.
+	 */
+	process Ready[]()
+	{
+		this.filter.inputData = this.source.data
+		this.filter.inputValid = this.source.valid
+		this.filter.inputStart = this.source.frameStart
+		this.filter.inputLineEnd = this.source.lineEnd
+		this.filter.inputEnd = this.source.frameEnd
+		this.filter.inputId = this.source.frameId
+		this.filter.requestedMode = this.mode
+		this.filter.requestedThreshold = this.threshold
+		this.filter.requestedBrightness = this.brightness
+		this.source.ready = this.filter.upstreamReady
+		this.filter.ready = this.accepted < 16 && this.ticks % 4 != 0
+	}
+
+	/**
+	 * Checks exact output values and every marker; changes settings inside a frame.
+	 */
+	process Sink()
+	{
+		state Tick {
+			this.ticks++
+
+			if (this.filter.valid && this.filter.ready) {
+				var position = (this.accepted % 8) as int
+				var expected = GRAY[position]
+
+				if (this.accepted >= 8) {
+					expected = 255 - expected
+				}
+
+				if (this.filter.data != expected as logic[16]
+					|| this.filter.frameId != this.accepted / 8
+					|| this.filter.frameStart != (position == 0)
+					|| this.filter.lineEnd != (position == 7)
+					|| this.filter.frameEnd != (position == 7)) {
+					this.errors++
+				}
+
+				if (this.accepted == 2) {
+					this.mode = 2
+				}
+
+				this.accepted++
+			}
+
+			goto Tick
+		}
+	}
+
+	/**
+	 * Each frame uses one configuration even though the request changes mid-frame.
+	 */
+	@Test
+	fn AppliesSettingsAtFrameBoundary()
+	{
+		this.enabled = true
+		Simulation.Wait(200)
+		assert this.accepted == 16
+		assert this.errors == 0
+		assert this.filter.appliedMode == 2
+	}
+}

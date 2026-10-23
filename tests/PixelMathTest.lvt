@@ -1,0 +1,26 @@
+namespace Eccelerators.Video.Tests
+
+using Eccelerators.Video
+
+/**
+ * Exact arithmetic boundaries and channel-order checks.
+ */
+@Test
+component PixelMathTest
+{
+	/**
+	 * Checks black, white and each primary plus brightness saturation.
+	 */
+	@Test
+	fn ConvertsPrimariesAndClipsBrightness()
+	{
+		assert PixelMath.Gray(0x0000) == 0
+		assert PixelMath.Gray(0xFFFF) == 255
+		assert PixelMath.Gray(0xF800) == 77
+		assert PixelMath.Gray(0x07E0) == 149
+		assert PixelMath.Gray(0x001F) == 29
+		assert PixelMath.Brightness(10, -20) == 0
+		assert PixelMath.Brightness(250, 20) == 255
+		assert PixelMath.Brightness(40, -10) == 30
+	}
+}

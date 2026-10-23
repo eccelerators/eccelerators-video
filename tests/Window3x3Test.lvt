@@ -1,0 +1,90 @@
+namespace Eccelerators.Video.Tests
+
+using Eccelerators.Video
+
+/**
+ * Two 4x4 ramp frames produce eight exact 3x3 windows under backpressure.
+ */
+@Test
+component Window3x3Test
+{
+	// Source ramp and explicit line-buffer window; initialized only by pixels.
+	source: PatternSource<4, 4>
+	window: Window3x3<4, 4>
+	enabled: bool
+	pattern: int
+	public accepted: out uint
+	public errors: out uint
+	public ticks: out uint
+
+	/**
+	 * Constructs independent producer/window in one reset and clock context.
+	 */
+	new()
+	{
+		this.source = new PatternSource<4, 4>(this.enabled, this.pattern)
+		this.window = new Window3x3<4, 4>()
+	}
+
+	/**
+	 * Drives an explicit token boundary and stalls every fourth sink edge.
+	 */
+	process Wire[]()
+	{
+		this.source.ready = this.window.upstreamReady
+		this.window.inputData = this.source.data as byte
+		this.window.inputValid = this.source.valid
+		this.window.inputStart = this.source.frameStart
+		this.window.inputLineEnd = this.source.lineEnd
+		this.window.inputEnd = this.source.frameEnd
+		this.window.inputId = this.source.frameId
+		this.window.ready = this.accepted < 8 && this.ticks % 4 != 0
+	}
+
+	/**
+	 * Independent ramp geometry checks all nine pixels and cropped markers.
+	 */
+	process Sink()
+	{
+		state Tick {
+			this.ticks++
+
+			if (this.window.valid && this.window.ready) {
+				var position = this.accepted % 4
+				var first = (position / 2) * 4 + position % 2
+
+				if (this.window.topLeft != first as byte
+					|| this.window.topCenter != (first + 1) as byte
+					|| this.window.topRight != (first + 2) as byte
+					|| this.window.middleLeft != (first + 4) as byte
+					|| this.window.middleCenter != (first + 5) as byte
+					|| this.window.middleRight != (first + 6) as byte
+					|| this.window.bottomLeft != (first + 8) as byte
+					|| this.window.bottomCenter != (first + 9) as byte
+					|| this.window.bottomRight != (first + 10) as byte
+					|| this.window.frameStart != (position == 0)
+					|| this.window.lineEnd != (position % 2 == 1)
+					|| this.window.frameEnd != (position == 3)
+					|| this.window.frameId != this.accepted / 4) {
+					this.errors++
+				}
+
+				this.accepted++
+			}
+
+			goto Tick
+		}
+	}
+
+	/**
+	 * Covers initialization, row reuse, next frame and output stalls.
+	 */
+	@Test
+	fn PreservesWindowsAndCroppedMarkers()
+	{
+		this.enabled = true
+		Simulation.Wait(300)
+		assert this.accepted == 8
+		assert this.errors == 0
+	}
+}

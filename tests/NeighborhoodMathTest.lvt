@@ -1,0 +1,26 @@
+namespace Eccelerators.Video.Tests
+
+using Eccelerators.Video
+
+/**
+ * Reference arithmetic for uniform fields, ramp, impulse and both edge signs.
+ */
+@Test
+component NeighborhoodMathTest
+{
+	/**
+	 * Checks rounding, zero DC response, gradient sign and saturation.
+	 */
+	@Test
+	fn ComputesBlurAndSobel()
+	{
+		assert NeighborhoodMath.Blur(255, 255, 255, 255, 255, 255, 255, 255, 255) == 255
+		assert NeighborhoodMath.Blur(0, 0, 0, 0, 255, 0, 0, 0, 0) == 28
+		assert NeighborhoodMath.Blur(1, 2, 3, 4, 5, 6, 7, 8, 9) == 5
+		assert NeighborhoodMath.Sobel(128, 128, 128, 128, 128, 128, 128, 128) == 0
+		assert NeighborhoodMath.Sobel(1, 2, 3, 4, 6, 7, 8, 9) == 32
+		assert NeighborhoodMath.Sobel(9, 8, 7, 6, 4, 3, 2, 1) == 32
+		assert NeighborhoodMath.Sobel(0, 0, 255, 0, 255, 0, 0, 255) == 255
+		assert NeighborhoodMath.Sobel(255, 0, 0, 255, 0, 255, 0, 0) == 255
+	}
+}

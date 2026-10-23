@@ -1,0 +1,9 @@
+[project]
+name = "GrayscaleVideoExample"
+component = "Eccelerators.Video.Examples.GrayscaleVideo"
+version = "1.0.0"
+path = "src"
+outdir = "out"
+
+[dependencies]
+"Eccelerators.Video" = {path = "../.."}

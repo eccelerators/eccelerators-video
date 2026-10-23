@@ -1,0 +1,21 @@
+[project]
+name = "Eccelerators.Video"
+version = "1.0.0"
+path = "src"
+outdir = "out"
+
+[dependencies]
+"Livt.IO" = "1.3.0"
+
+[tests]
+path = "tests"
+components = ["PixelStreamTest", "PixelThroughputTest", "PixelMathTest", "PixelPatternTest", "PixelFilterTest", "Window3x3Test", "NeighborhoodMathTest", "DvpRgb565CaptureTest"]
+
+[vendor.gowin.ip]
+component = "Eccelerators.Video.VideoProbe"
+wrapper = "auto"
+top = "video_probe"
+name = "video-probe"
+version = "1.0.0"
+library = "work"
+include_tests = false

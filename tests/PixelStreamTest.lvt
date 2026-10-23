@@ -1,0 +1,81 @@
+namespace Eccelerators.Video.Tests
+
+using Eccelerators.Video
+
+/**
+ * Counts actual edge acceptances through a producer/bypass, with periodic stalls.
+ * The concurrent sink records errors; the scheduled test checks final counters.
+ */
+@Test
+@Context(ClockFrequency = 50MHz)
+component PixelStreamTest
+{
+	// Owned producer and combinational transport stage.
+	source: PatternSource<4, 3, 2>
+	bypass: PixelBypass
+
+	// Test controls and observed counters; sink owns accepted/errors/ticks.
+	enabled: bool
+	pattern: int
+	public accepted: out uint
+	public errors: out uint
+	public ticks: out uint
+
+	/**
+	 * Builds a small Gray8 raster with two blank cycles after each line.
+	 */
+	new()
+	{
+		this.pattern = 0
+		this.source = new PatternSource<4, 3, 2>(this.enabled, this.pattern)
+		this.bypass = new PixelBypass(this.source.data, this.source.valid, this.source.frameStart,
+			this.source.lineEnd, this.source.frameEnd, this.source.frameId)
+	}
+
+	/**
+	 * Inserts a stall every fourth edge and stops after three complete frames.
+	 */
+	process Ready[]()
+	{
+		this.source.ready = this.bypass.upstreamReady
+		this.bypass.ready = this.accepted < 36 && this.ticks % 4 != 0
+	}
+
+	/**
+	 * Checks every accepted token against an independently counted raster position.
+	 */
+	process Sink()
+	{
+		state Tick {
+			this.ticks++
+
+			if (this.bypass.valid && this.bypass.ready) {
+				var position = this.accepted % 12
+
+				if (this.bypass.data != position as logic[16]
+					|| this.bypass.frameStart != (position == 0)
+					|| this.bypass.lineEnd != (position % 4 == 3)
+					|| this.bypass.frameEnd != (position == 11)
+					|| this.bypass.frameId != this.accepted / 12) {
+					this.errors++
+				}
+
+				this.accepted++
+			}
+
+			goto Tick
+		}
+	}
+
+	/**
+	 * Allows bounded time for 36 pixels, blanking and stalls, then checks exact totals.
+	 */
+	@Test
+	fn PreservesRasterAcrossStallsAndBlanking()
+	{
+		this.enabled = true
+		Simulation.Wait(200)
+		assert this.accepted == 36
+		assert this.errors == 0
+	}
+}

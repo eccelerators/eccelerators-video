@@ -1,0 +1,103 @@
+namespace Eccelerators.Video
+
+/**
+ * Owns raster counters; emits Gray8 ramp/checker or RGB565 color-bar pixels at up to one per edge.
+ * Borrows stable enable/pattern controls. Change controls only with reset or at
+ * a frame boundary. LINE_BLANK inserts invalid cycles after each accepted line.
+ * Stalls preserve the entire pixel token. Context and reset are inherited.
+ */
+component PatternSource<WIDTH: int = 320, HEIGHT: int = 240, LINE_BLANK: int = 0> : IPixelStream
+{
+	static assert WIDTH > 0 && WIDTH <= 4096, "Supported width is 1..4096"
+	static assert HEIGHT > 0 && HEIGHT <= 4096, "Supported height is 1..4096"
+	static assert LINE_BLANK >= 0, "Blanking cannot be negative"
+
+	// Borrowed stable control signals.
+	enabled: bool
+	pattern: int
+
+	// Owned raster position, blanking counter and wrapping frame identity.
+	x: int
+	y: int
+	blank: int
+	sequence: uint
+
+	/**
+	 * Binds pattern (0 ramp, 1 checker, 2 RGB565 bars) and starts at pixel (0,0), frame zero after reset.
+	 */
+	new(enabled: bool, pattern: int)
+	{
+		this.enabled = enabled
+		this.pattern = pattern
+	}
+
+	/**
+	 * Produces a token combinationally; no registered accessor or call scheduler.
+	 */
+	process Signals[]()
+	{
+		this.valid = this.enabled && this.blank == 0
+		this.data = ((this.x + this.y * WIDTH) % 256) as logic[16]
+
+		if (this.pattern == 1) {
+			if ((this.x / 8 + this.y / 8) % 2 == 0) {
+				this.data = 0
+			} else {
+				this.data = 255
+			}
+		}
+
+		if (this.pattern == 2) {
+			if (this.x < (1 * WIDTH + 7) / 8) {
+				this.data = 0xFFFF
+			} elif (this.x < (2 * WIDTH + 7) / 8) {
+				this.data = 0xFFE0
+			} elif (this.x < (3 * WIDTH + 7) / 8) {
+				this.data = 0x07FF
+			} elif (this.x < (4 * WIDTH + 7) / 8) {
+				this.data = 0x07E0
+			} elif (this.x < (5 * WIDTH + 7) / 8) {
+				this.data = 0xF81F
+			} elif (this.x < (6 * WIDTH + 7) / 8) {
+				this.data = 0xF800
+			} elif (this.x < (7 * WIDTH + 7) / 8) {
+				this.data = 0x001F
+			} else {
+				this.data = 0
+			}
+		}
+
+		this.frameStart = this.x == 0 && this.y == 0
+		this.lineEnd = this.x == WIDTH - 1
+		this.frameEnd = this.x == WIDTH - 1 && this.y == HEIGHT - 1
+		this.frameId = this.sequence
+	}
+
+	/**
+	 * Advances only on acceptance; each iteration is one context edge.
+	 */
+	process Raster()
+	{
+		state Tick {
+			if (this.blank > 0) {
+				this.blank--
+			} elif (this.valid && this.ready) {
+				if (this.x == WIDTH - 1) {
+					this.x = 0
+					this.blank = LINE_BLANK
+
+					if (this.y == HEIGHT - 1) {
+						this.y = 0
+						this.sequence++
+					} else {
+						this.y++
+					}
+				} else {
+					this.x++
+				}
+			}
+
+			goto Tick
+		}
+	}
+}

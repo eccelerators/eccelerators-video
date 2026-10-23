@@ -1,0 +1,23 @@
+namespace Eccelerators.Video
+
+/**
+ * Single-clock pixel stream. A rising edge accepts one pixel exactly when valid
+ * and ready are true. The provider holds data and all markers while stalled.
+ * Gray8 uses data[7:0] with zero high byte; RGB565 uses all sixteen bits.
+ * Markers accompany pixels: first pixel of frame, last pixel of line/frame.
+ * Reset discards the current frame; the next valid sequence starts with frameStart.
+ * Producers own payload/valid; one consumer owns ready. No scheduled pixel calls.
+ */
+interface IPixelStream
+{
+	// Provider-owned payload and coherent frame metadata.
+	data: out logic[16]
+	valid: out bool
+	frameStart: out bool
+	lineEnd: out bool
+	frameEnd: out bool
+	frameId: out uint
+
+	// Consumer-owned acceptance permission for the current edge.
+	ready: in bool
+}

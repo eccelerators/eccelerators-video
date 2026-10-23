@@ -1,0 +1,84 @@
+namespace Eccelerators.Video.Tests
+
+using Eccelerators.Video
+
+/**
+ * Checks literal RGB565 color order and checker transitions on actual stream edges.
+ */
+@Test
+@Context(ClockFrequency = 50MHz)
+component PixelPatternTest
+{
+	// Eight expected RGB565 color bars; constant table maps to combinational decode.
+	const COLORS: uint[8] = [0xFFFF, 0xFFE0, 0x07FF, 0x07E0, 0xF81F, 0xF800, 0x001F, 0]
+
+	// Independent owned sources and signal-level acceptance counters.
+	bars: PatternSource<8, 1>
+	checker: PatternSource<16, 1>
+	public colorCount: out uint
+	public checkerCount: out uint
+	public errors: out uint
+	enabled: bool
+	colorPattern: int
+	checkerPattern: int
+
+	/**
+	 * Selects color bars and checker patterns before enabling either source.
+	 */
+	new()
+	{
+		this.colorPattern = 2
+		this.checkerPattern = 1
+		this.bars = new PatternSource<8, 1>(this.enabled, this.colorPattern)
+		this.checker = new PatternSource<16, 1>(this.enabled, this.checkerPattern)
+	}
+
+	/**
+	 * Stops each source after exactly one row.
+	 */
+	process Ready[]()
+	{
+		this.bars.ready = this.colorCount < 8
+		this.checker.ready = this.checkerCount < 16
+	}
+
+	/**
+	 * Compares accepted stream values to fixed expected bars and checker transitions.
+	 */
+	process Sink()
+	{
+		state Tick {
+			if (this.bars.valid && this.bars.ready) {
+				if (this.bars.data as uint != COLORS[this.colorCount as int]) {
+					this.errors++
+				}
+
+				this.colorCount++
+			}
+
+			if (this.checker.valid && this.checker.ready) {
+				if ((this.checkerCount < 8 && this.checker.data != 0)
+					|| (this.checkerCount >= 8 && this.checker.data != 255)) {
+					this.errors++
+				}
+
+				this.checkerCount++
+			}
+
+			goto Tick
+		}
+	}
+
+	/**
+	 * Checks complete rows and rejects skipped or reordered pattern pixels.
+	 */
+	@Test
+	fn EmitsColorBarsAndCheckerTransitions()
+	{
+		this.enabled = true
+		Simulation.Wait(100)
+		assert this.colorCount == 8
+		assert this.checkerCount == 16
+		assert this.errors == 0
+	}
+}

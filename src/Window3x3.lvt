@@ -1,0 +1,186 @@
+namespace Eccelerators.Video
+
+using Livt.IO
+
+/**
+ * Gray8 3x3 window with explicit synchronous block-RAM line storage.
+ * Input must be a valid WIDTH by HEIGHT raster with coherent markers. Crops one
+ * pixel at every border: output dimensions are WIDTH-2 by HEIGHT-2.
+ * One read edge and one write edge per accepted input pixel: maximum one pixel
+ * per two context edges. Backpressure propagates; live cameras require a FIFO.
+ * RAM is not reset; the first two rows initialize it before any window is valid.
+ */
+component Window3x3<WIDTH: int = 320, HEIGHT: int = 240>
+{
+	static assert WIDTH >= 3 && WIDTH <= 4096 && HEIGHT >= 3, "Window requires at least 3x3"
+
+	// Explicit line storage: WIDTH bytes each, one synchronous port, block mapping requested.
+	previousLine: SynchronousRam<byte, logic[12], WIDTH, MemoryStyle.Block>
+
+	// Second previous row uses an independent block-RAM port in the same clock domain.
+	olderLine: SynchronousRam<byte, logic[12], WIDTH, MemoryStyle.Block>
+
+	// Input Gray8 token; valid/ready acceptance and markers are sampled together.
+	public inputData: in byte
+	public inputValid: in bool
+	public inputStart: in bool
+	public inputLineEnd: in bool
+	public inputEnd: in bool
+	public inputId: in uint
+	public upstreamReady: out bool
+
+	// Output row-major window and cropped-raster metadata; held during stalls.
+	public topLeft: out byte
+	public topCenter: out byte
+	public topRight: out byte
+	public middleLeft: out byte
+	public middleCenter: out byte
+	public middleRight: out byte
+	public bottomLeft: out byte
+	public bottomCenter: out byte
+	public bottomRight: out byte
+	public valid: out bool
+	public ready: in bool
+	public frameStart: out bool
+	public lineEnd: out bool
+	public frameEnd: out bool
+	public frameId: out uint
+
+	// Owned RAM phase, raster position, and accepted pixel held across read latency.
+	writePhase: bool
+	x: int
+	y: int
+	pixel: byte
+	identity: uint
+
+	// Two previous columns of each row, valid only after the first two columns.
+	topOlder: byte
+	topPrevious: byte
+	middleOlder: byte
+	middlePrevious: byte
+	bottomOlder: byte
+	bottomPrevious: byte
+
+	// Owned output window registers; comb exports preserve uniform latency.
+	heldTopLeft: byte
+	heldTopCenter: byte
+	heldTopRight: byte
+	heldMiddleLeft: byte
+	heldMiddleCenter: byte
+	heldMiddleRight: byte
+	heldBottomLeft: byte
+	heldBottomCenter: byte
+	heldBottomRight: byte
+	heldValid: bool
+	heldStart: bool
+	heldLineEnd: bool
+	heldEnd: bool
+	heldId: uint
+
+	/**
+	 * Owns two independent memories, retaining cells across reset.
+	 */
+	new()
+	{
+		this.previousLine = new SynchronousRam<byte, logic[12], WIDTH, MemoryStyle.Block>()
+		this.olderLine = new SynchronousRam<byte, logic[12], WIDTH, MemoryStyle.Block>()
+	}
+
+	/**
+	 * Both memories read a column together, then replace it together one edge later.
+	 */
+	process Wire[]()
+	{
+		this.upstreamReady = !this.writePhase && (!this.heldValid || this.ready)
+		var address = this.x
+
+		if (!this.writePhase && this.inputStart) {
+			address = 0
+		}
+
+		this.previousLine.address = address as logic[12]
+		this.olderLine.address = address as logic[12]
+		this.previousLine.enable = this.writePhase || (this.inputValid && this.upstreamReady)
+		this.olderLine.enable = this.previousLine.enable
+		this.previousLine.writeEnable = this.writePhase
+		this.olderLine.writeEnable = this.writePhase
+		this.previousLine.writeData = this.pixel
+		this.olderLine.writeData = this.previousLine.readData
+		this.topLeft = this.heldTopLeft
+		this.topCenter = this.heldTopCenter
+		this.topRight = this.heldTopRight
+		this.middleLeft = this.heldMiddleLeft
+		this.middleCenter = this.heldMiddleCenter
+		this.middleRight = this.heldMiddleRight
+		this.bottomLeft = this.heldBottomLeft
+		this.bottomCenter = this.heldBottomCenter
+		this.bottomRight = this.heldBottomRight
+		this.valid = this.heldValid
+		this.frameStart = this.heldStart
+		this.lineEnd = this.heldLineEnd
+		this.frameEnd = this.heldEnd
+		this.frameId = this.heldId
+	}
+
+	/**
+	 * Consumes the synchronous read and advances only on committed input pixels.
+	 */
+	process Raster()
+	{
+		state Tick {
+			if (this.ready) {
+				this.heldValid = false
+			}
+
+			if (this.writePhase) {
+				if (this.x >= 2 && this.y >= 2) {
+					this.heldTopLeft = this.topOlder
+					this.heldTopCenter = this.topPrevious
+					this.heldTopRight = this.olderLine.readData
+					this.heldMiddleLeft = this.middleOlder
+					this.heldMiddleCenter = this.middlePrevious
+					this.heldMiddleRight = this.previousLine.readData
+					this.heldBottomLeft = this.bottomOlder
+					this.heldBottomCenter = this.bottomPrevious
+					this.heldBottomRight = this.pixel
+					this.heldValid = true
+					this.heldStart = this.x == 2 && this.y == 2
+					this.heldLineEnd = this.x == WIDTH - 1
+					this.heldEnd = this.x == WIDTH - 1 && this.y == HEIGHT - 1
+					this.heldId = this.identity
+				}
+
+				this.topOlder = this.topPrevious
+				this.topPrevious = this.olderLine.readData
+				this.middleOlder = this.middlePrevious
+				this.middlePrevious = this.previousLine.readData
+				this.bottomOlder = this.bottomPrevious
+				this.bottomPrevious = this.pixel
+				this.writePhase = false
+
+				if (this.x == WIDTH - 1) {
+					this.x = 0
+
+					if (this.y == HEIGHT - 1) {
+						this.y = 0
+					} else {
+						this.y++
+					}
+				} else {
+					this.x++
+				}
+			} elif (this.inputValid && this.upstreamReady) {
+				this.pixel = this.inputData
+				this.identity = this.inputId
+				this.writePhase = true
+
+				if (this.inputStart) {
+					this.x = 0
+					this.y = 0
+				}
+			}
+
+			goto Tick
+		}
+	}
+}

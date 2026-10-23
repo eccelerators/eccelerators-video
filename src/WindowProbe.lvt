@@ -1,0 +1,95 @@
+namespace Eccelerators.Video
+
+/**
+ * Standalone timing/resource probe: 320x240 Gray ramp, two line RAMs and both filters.
+ * Not a board design. External controls have no physical pin or I/O timing contract.
+ */
+@Context(ClockFrequency = 50MHz)
+component WindowProbe
+{
+	// Source and explicit block-RAM neighborhood generator.
+	source: PatternSource<320, 240>
+	window: Window3x3<320, 240>
+
+	// Borrowed stable source controls and consumer-facing stream outputs.
+	enabled: bool
+	pattern: int
+	public ready: in bool
+	public valid: out bool
+	public blur: out byte
+	public sobel: out byte
+	public frameStart: out bool
+	public lineEnd: out bool
+	public frameEnd: out bool
+	public frameId: out uint
+
+	// Owned elastic result register; one common valid for both arithmetic outputs.
+	heldValid: bool
+	heldBlur: byte
+	heldSobel: byte
+	heldStart: bool
+	heldLineEnd: bool
+	heldEnd: bool
+	heldId: uint
+
+	/**
+	 * Binds enable and pattern; settings must remain stable during a frame.
+	 */
+	new(enabled: bool, pattern: int)
+	{
+		this.enabled = enabled
+		this.pattern = pattern
+		this.source = new PatternSource<320, 240>(enabled, pattern)
+		this.window = new Window3x3<320, 240>()
+	}
+
+	/**
+	 * Connects one clock domain, explicit backpressure and common output metadata.
+	 */
+	process Wire[]()
+	{
+		this.source.ready = this.window.upstreamReady
+		this.window.inputData = this.source.data as byte
+		this.window.inputValid = this.source.valid
+		this.window.inputStart = this.source.frameStart
+		this.window.inputLineEnd = this.source.lineEnd
+		this.window.inputEnd = this.source.frameEnd
+		this.window.inputId = this.source.frameId
+		this.window.ready = !this.heldValid || this.ready
+		this.valid = this.heldValid
+		this.blur = this.heldBlur
+		this.sobel = this.heldSobel
+		this.frameStart = this.heldStart
+		this.lineEnd = this.heldLineEnd
+		this.frameEnd = this.heldEnd
+		this.frameId = this.heldId
+	}
+
+	/**
+	 * Registers both filters at the same edge; no arithmetic-to-metadata skew.
+	 */
+	process Filter()
+	{
+		state Tick {
+			if (this.window.ready) {
+				this.heldValid = this.window.valid
+
+				if (this.window.valid) {
+					this.heldBlur = NeighborhoodMath.Blur(this.window.topLeft, this.window.topCenter,
+						this.window.topRight, this.window.middleLeft, this.window.middleCenter,
+						this.window.middleRight, this.window.bottomLeft, this.window.bottomCenter,
+						this.window.bottomRight)
+					this.heldSobel = NeighborhoodMath.Sobel(this.window.topLeft, this.window.topCenter,
+						this.window.topRight, this.window.middleLeft, this.window.middleRight,
+						this.window.bottomLeft, this.window.bottomCenter, this.window.bottomRight)
+					this.heldStart = this.window.frameStart
+					this.heldLineEnd = this.window.lineEnd
+					this.heldEnd = this.window.frameEnd
+					this.heldId = this.window.frameId
+				}
+			}
+
+			goto Tick
+		}
+	}
+}

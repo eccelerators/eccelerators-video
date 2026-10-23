@@ -1,0 +1,48 @@
+namespace Eccelerators.Video
+
+/**
+ * Zero-storage, zero-edge-latency pixel connection in one context.
+ * Payload inputs are borrowed signals; upstreamReady must drive the source's ready.
+ * The composition owner connects all payload fields and returns readiness
+ * in the same clock domain.
+ */
+component PixelBypass : IPixelStream
+{
+	// Borrowed source payload and coherent markers.
+	inputData: logic[16]
+	inputValid: bool
+	inputStart: bool
+	inputLineEnd: bool
+	inputEnd: bool
+	inputId: uint
+
+	// Acceptance signal returned to the upstream producer.
+	public upstreamReady: out bool
+
+	/**
+	 * Binds the source's live token signals; caller connects upstreamReady to source.ready.
+	 */
+	new(data: logic[16], valid: bool, frameStart: bool, lineEnd: bool, frameEnd: bool, frameId: uint)
+	{
+		this.inputData = data
+		this.inputValid = valid
+		this.inputStart = frameStart
+		this.inputLineEnd = lineEnd
+		this.inputEnd = frameEnd
+		this.inputId = frameId
+	}
+
+	/**
+	 * Passes the complete token and readiness without storage or scheduled calls.
+	 */
+	process Wire[]()
+	{
+		this.data = this.inputData
+		this.valid = this.inputValid
+		this.frameStart = this.inputStart
+		this.lineEnd = this.inputLineEnd
+		this.frameEnd = this.inputEnd
+		this.frameId = this.inputId
+		this.upstreamReady = this.ready
+	}
+}

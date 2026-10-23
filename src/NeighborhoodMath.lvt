@@ -1,0 +1,58 @@
+namespace Eccelerators.Video
+
+/**
+ * Pure Gray8 3x3 arithmetic, with no storage or scheduled calls.
+ * Blur rounds the nine-pixel mean; Sobel returns saturated |Gx|+|Gy|.
+ */
+component NeighborhoodMath
+{
+	/**
+	 * Accepts nine Gray8 pixels in row-major order: a/b/c, d/e/f, g/h/i.
+	 * Returns their rounded mean. Sum is bounded by 2295; add four before division.
+	 */
+	public static fn Blur[](a: byte, b: byte, c: byte, d: byte, e: byte, f: byte,
+		g: byte, h: byte, i: byte) byte
+	{
+		var sum = (a as uint) + (b as uint) + (c as uint) + (d as uint) + (e as uint)
+			+ (f as uint) + (g as uint) + (h as uint) + (i as uint)
+		var rounded = ((sum + 4) as logic[12]) as uint
+		return (rounded / 9) as byte
+	}
+
+	/**
+	 * Each weighted side is 0..1020 (10 bits). L1 magnitude uses 11 bits and clips
+	 * to 255, with no rescaling. Unsigned differences avoid unnecessary sign paths.
+	 * Inputs are row-major a/b/c, d/(unused)/f, g/h/i.
+	 * The center pixel is unused by the Sobel kernels.
+	 */
+	public static fn Sobel[](a: byte, b: byte, c: byte, d: byte, f: byte,
+		g: byte, h: byte, i: byte) byte
+	{
+		var left = (((a as uint) + 2 * (d as uint) + (g as uint)) as logic[10]) as uint
+		var right = (((c as uint) + 2 * (f as uint) + (i as uint)) as logic[10]) as uint
+		var top = (((a as uint) + 2 * (b as uint) + (c as uint)) as logic[10]) as uint
+		var bottom = (((g as uint) + 2 * (h as uint) + (i as uint)) as logic[10]) as uint
+		var horizontal: logic[10]
+		var vertical: logic[10]
+
+		if (left > right) {
+			horizontal = (left - right) as logic[10]
+		} else {
+			horizontal = (right - left) as logic[10]
+		}
+
+		if (top > bottom) {
+			vertical = (top - bottom) as logic[10]
+		} else {
+			vertical = (bottom - top) as logic[10]
+		}
+
+		var magnitude = (((horizontal as uint) + (vertical as uint)) as logic[11]) as uint
+
+		if (magnitude > 255) {
+			return 255
+		}
+
+		return magnitude as byte
+	}
+}

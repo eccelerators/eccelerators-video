@@ -1,0 +1,132 @@
+namespace Eccelerators.Video
+
+/**
+ * One-register elastic RGB565 input filter; one accepted token per context edge.
+ * Mode 0 preserves RGB565; 1 Gray8, 2 inverted Gray8, 3 brightness, 4 threshold.
+ * Gray results occupy the low byte. No line/frame RAM, clock crossing or scheduled calls.
+ * Requested settings latch on accepted frameStart; every output token is held
+ * unchanged under backpressure. Reset discards any pending token and configuration.
+ */
+component PixelFilter : IPixelStream
+{
+	// Borrowed upstream token and requested next-frame settings.
+	public inputData: in logic[16]
+	public inputValid: in bool
+	public inputStart: in bool
+	public inputLineEnd: in bool
+	public inputEnd: in bool
+	public inputId: in uint
+	public requestedMode: in int
+	public requestedThreshold: in byte
+	public requestedBrightness: in int
+
+	// Returned input readiness and applied frame configuration.
+	public upstreamReady: out bool
+	public appliedMode: out int
+	threshold: byte
+	brightness: int
+
+	// Owned output register; combinational exports keep every token field aligned.
+	heldData: logic[16]
+	heldValid: bool
+	heldStart: bool
+	heldLineEnd: bool
+	heldEnd: bool
+	heldId: uint
+	activeMode: int
+
+	/**
+	 * Exposes the registered token without adding separate accessor clocks.
+	 */
+	process Output[]()
+	{
+		this.data = this.heldData
+		this.valid = this.heldValid
+		this.frameStart = this.heldStart
+		this.lineEnd = this.heldLineEnd
+		this.frameEnd = this.heldEnd
+		this.frameId = this.heldId
+		this.appliedMode = this.activeMode
+	}
+
+	/**
+	 * Accepts when the output register is empty or will be consumed at this edge.
+	 */
+	process Ready[]()
+	{
+		this.upstreamReady = !this.valid || this.ready
+	}
+
+	/**
+	 * Registers data and all metadata together, including the first pixel's settings.
+	 */
+	process Filter()
+	{
+		state Tick {
+			if (this.upstreamReady) {
+				this.heldValid = this.inputValid
+
+				if (this.inputValid) {
+					var mode = this.activeMode
+					var threshold = this.threshold
+					var brightness = this.brightness
+
+					if (this.inputStart) {
+						mode = this.requestedMode
+						threshold = this.requestedThreshold
+						brightness = this.requestedBrightness
+
+						if (mode < 0 || mode > 4) {
+							mode = 0
+						}
+
+						this.activeMode = mode
+						this.threshold = threshold
+						this.brightness = brightness
+					}
+
+					var gray = PixelMath.Gray(this.inputData)
+					this.heldData = this.inputData
+
+					match (mode)
+					{
+						1 =>
+						{
+							this.heldData = gray as logic[16]
+						}
+
+						2 =>
+						{
+							this.heldData = (255 - (gray as int)) as logic[16]
+						}
+
+						3 =>
+						{
+							this.heldData = PixelMath.Brightness(gray, brightness) as logic[16]
+						}
+
+						4 =>
+						{
+							this.heldData = 0
+
+							if (gray >= threshold) {
+								this.heldData = 255
+							}
+						}
+
+						_ =>
+						{
+						}
+					}
+
+					this.heldStart = this.inputStart
+					this.heldLineEnd = this.inputLineEnd
+					this.heldEnd = this.inputEnd
+					this.heldId = this.inputId
+				}
+			}
+
+			goto Tick
+		}
+	}
+}

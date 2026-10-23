@@ -1,0 +1,50 @@
+namespace Eccelerators.Video
+
+/**
+ * Pure combinational pixel arithmetic. No state, clock crossing or pixel storage.
+ * RGB565 channels expand by bit replication; Gray uses rounded 77/150/29 weights.
+ */
+component PixelMath
+{
+	/**
+	 * Converts RGB565 to Gray8 with round-to-nearest integer weighting.
+	 */
+	public static fn Gray[](pixel: logic[16]) byte
+	{
+		var word = pixel as uint
+		var red = (word >> 11) & 31
+		var green = (word >> 5) & 63
+		var blue = word & 31
+		red = (red << 3) | (red >> 2)
+		green = (green << 2) | (green >> 4)
+		blue = (blue << 3) | (blue >> 2)
+		return ((77 * red + 150 * green + 29 * blue + 128) >> 8) as byte
+	}
+
+	/**
+	 * Adds a signed offset in Gray8 intensity units and clamps to 0..255.
+	 * Offsets outside -255..255 return the corresponding saturation endpoint.
+	 */
+	public static fn Brightness[](value: byte, offset: int) byte
+	{
+		if (offset < -255) {
+			return 0
+		}
+
+		if (offset > 255) {
+			return 255
+		}
+
+		var adjusted = (value as int) + offset
+
+		if (adjusted < 0) {
+			return 0
+		}
+
+		if (adjusted > 255) {
+			return 255
+		}
+
+		return adjusted as byte
+	}
+}

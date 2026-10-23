@@ -1,0 +1,110 @@
+namespace Eccelerators.Video.Tests
+
+using Eccelerators.Video
+
+/**
+ * PCLK-domain camera generator with exact byte edges, odd lines and forced overflow.
+ * This tests decoding/recovery only; asynchronous FIFO qualification is separate.
+ */
+@Test
+component DvpRgb565CaptureTest
+{
+	// Three independent capture paths receive the same synthetic 3x3 byte raster.
+	good: DvpRgb565Capture<3, 3>
+	blocked: DvpRgb565Capture<3, 3>
+	odd: DvpRgb565Capture<3, 3>
+	public ticks: out uint
+	public pixels: out uint
+	public errors: out uint
+
+	/**
+	 * All capture logic inherits the same synthetic PCLK context in this fixture.
+	 */
+	new()
+	{
+		this.good = new DvpRgb565Capture<3, 3>()
+		this.blocked = new DvpRgb565Capture<3, 3>()
+		this.odd = new DvpRgb565Capture<3, 3>()
+	}
+
+	/**
+	 * Forty-edge frames: eight sync edges, three 6-byte lines with 2-edge gaps,
+	 * then eight sync edges. The next frame starts on the next falling VSYNC.
+	 */
+	process Camera[]()
+	{
+		var position = (this.ticks % 40) as int
+		var row = (position - 8) / 8
+		var column = (position - 8) % 8
+		var active = position >= 8 && position < 32 && column < 6
+		var frameBlank = position < 8 || position >= 32
+		var data: byte = 0x12
+
+		if (column % 2 == 1) {
+			data = (row * 3 + column / 2) as byte
+		} else {
+			data = 0x12
+		}
+
+		this.good.cameraData = data
+		this.good.href = active
+		this.good.vsync = frameBlank
+		this.good.ready = true
+		this.blocked.cameraData = data
+		this.blocked.href = active
+		this.blocked.vsync = frameBlank
+		this.blocked.ready = this.ticks >= 40
+		this.odd.cameraData = data
+		this.odd.href = active && !(this.ticks < 40 && row == 0 && column == 5)
+		this.odd.vsync = frameBlank
+		this.odd.ready = true
+	}
+
+	/**
+	 * Checks every valid pixel of four frames; rejected frames must not emit END.
+	 */
+	process Sink()
+	{
+		state Tick {
+			this.ticks++
+
+			if (this.good.valid && this.good.ready) {
+				var position = this.pixels % 9
+
+				if (this.good.data != (0x1200 + position) as logic[16]
+					|| this.good.frameId != this.pixels / 9
+					|| this.good.frameStart != (position == 0)
+					|| this.good.lineEnd != (position % 3 == 2)
+					|| this.good.frameEnd != (position == 8)) {
+					this.errors++
+				}
+
+				this.pixels++
+			}
+
+			if ((this.blocked.valid && this.blocked.frameEnd && this.blocked.frameId == 0)
+				|| (this.odd.valid && this.odd.frameEnd && this.odd.frameId == 0)) {
+				this.errors++
+			}
+
+			goto Tick
+		}
+	}
+
+	/**
+	 * Allows complete frames and asserts bounded recovery after each fault.
+	 */
+	@Test
+	fn DecodesAndRecoversWithoutPublishingInvalidFrames()
+	{
+		Simulation.Wait(180)
+		assert this.pixels >= 36
+		assert this.errors == 0
+		assert this.good.capturedFrames >= 4
+		assert this.good.droppedFrames == 0
+		assert this.blocked.overflowFrames == 1
+		assert this.blocked.capturedFrames >= 3
+		assert this.odd.malformedFrames == 1
+		assert this.odd.capturedFrames >= 3
+	}
+}

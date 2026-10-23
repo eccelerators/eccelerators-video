@@ -1,0 +1,52 @@
+namespace Eccelerators.Video.Examples
+
+using Eccelerators.Video
+
+/**
+ * Owns a 320x240 RGB565 pattern source and one elastic grayscale stage at 50 MHz.
+ * Supply pattern 2 for color bars and keep the borrowed controls stable within a frame.
+ * One consumer drives ready; this component owns the output token and metadata.
+ * Reset cancels the pending token and restarts the source raster.
+ */
+@Context(ClockFrequency = 50MHz)
+component GrayscaleVideo : IPixelStream
+{
+	// Owned stages; the filter uses one token register and no line or frame RAM.
+	source: PatternSource<320, 240>
+	filter: PixelFilter
+
+	/**
+	 * Borrows live source controls and constructs both stages in the same context.
+	 * Enable the stream after reset and supply pattern 2 for RGB565 filter input.
+	 */
+	new(enabled: bool, pattern: int)
+	{
+		this.source = new PatternSource<320, 240>(enabled, pattern)
+		this.filter = new PixelFilter()
+	}
+
+	/**
+	 * Forwards the entire token and returns consumer readiness through both stages.
+	 * Fixed mode 1 converts RGB565 to Gray8 on each accepted frame start.
+	 */
+	process Wire[]()
+	{
+		this.filter.inputData = this.source.data
+		this.filter.inputValid = this.source.valid
+		this.filter.inputStart = this.source.frameStart
+		this.filter.inputLineEnd = this.source.lineEnd
+		this.filter.inputEnd = this.source.frameEnd
+		this.filter.inputId = this.source.frameId
+		this.filter.requestedMode = 1
+		this.filter.requestedThreshold = 128
+		this.filter.requestedBrightness = 0
+		this.source.ready = this.filter.upstreamReady
+		this.filter.ready = this.ready
+		this.data = this.filter.data
+		this.valid = this.filter.valid
+		this.frameStart = this.filter.frameStart
+		this.lineEnd = this.filter.lineEnd
+		this.frameEnd = this.filter.frameEnd
+		this.frameId = this.filter.frameId
+	}
+}
