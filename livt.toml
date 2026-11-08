@@ -1,11 +1,24 @@
 [project]
 name = "Eccelerators.Video"
-version = "1.0.0"
+version = "1.0.1"
+description = "Streaming pixel pipelines, filters, test patterns, and parallel camera capture for Livt FPGA applications."
+authors = ["Denis Vasilík"]
+repository = "https://github.com/eccelerators/eccelerators-video"
+homepage = "https://github.com/eccelerators/eccelerators-video"
+keywords = ["fpga", "video", "pixel", "camera", "filter"]
+license = "MIT"
 path = "src"
 outdir = "out"
 
+[project.organization]
+name = "Eccelerators GmbH"
+website = "https://eccelerators.com"
+
+[publish]
+files = ["README.md", "CHANGELOG.md", "LICENSE"]
+
 [dependencies]
-"Livt.IO" = "1.3.0"
+"Livt.IO" = "1.8.1"
 
 [tests]
 path = "tests"

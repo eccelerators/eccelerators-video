@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1
+
+- Add package discovery metadata and include the README, changelog and license
+  in publication.
+- Update the Livt.IO dependency to 1.8.1.
+
 ## 1.0.0 — 2026-10-23
 
 Initial stable release of Eccelerators.Video.

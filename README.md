@@ -5,7 +5,7 @@ applications written in Livt. It combines pixel-stream handshakes, test patterns
 point filters, neighborhood processing and parallel camera capture with explicit
 register stages and block-RAM line storage.
 
-Version **1.0.0** depends on **Livt.IO 1.3.0**.
+Version **1.0.1** depends on **Livt.IO 1.8.1**.
 Applications provide sensor configuration, clock-domain crossing and the display,
 frame-buffer or network connection.
 
@@ -32,7 +32,7 @@ Add the package to your project's `livt.toml`:
 
 ```toml
 [dependencies]
-"Eccelerators.Video" = "1.0.0"
+"Eccelerators.Video" = "1.0.1"
 ```
 
 Run `livt sync`, then import the public API:
